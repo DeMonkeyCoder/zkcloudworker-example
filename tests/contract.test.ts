@@ -22,7 +22,7 @@ import {
   accountBalanceMina,
 } from "zkcloudworker";
 import { zkcloudworker } from "..";
-import { AddContract, AddProgram, limit, AddValue } from "../src/contract";
+import { AddContract } from "../src/contract";
 import { contract, DEPLOYER } from "./config";
 import packageJson from "../package.json";
 import { JWT } from "../env.json";
@@ -54,39 +54,23 @@ const api = new zkCloudWorkerClient({
 let deployer: PrivateKey;
 let sender: PublicKey;
 
-const oneValues: number[] = [];
-const manyValues: number[][] = [];
 
 const contractPrivateKey = contract.contractPrivateKey;
-const contractPublicKey = contractPrivateKey.toPublicKey();
+const contractPublicKey = deploy ? contractPrivateKey.toPublicKey() : PublicKey.fromBase58(contract.contractAddress);
 
 const zkApp = new AddContract(contractPublicKey);
-let programVerificationKey: VerificationKey;
 let contractVerificationKey: VerificationKey;
 let blockchainInitialized = false;
 
 describe("Add Worker", () => {
-  it(`should prepare data`, async () => {
-    console.log("Preparing data...");
-    console.time(`prepared data`);
-    for (let i = 0; i < ONE_ELEMENTS_NUMBER; i++) {
-      oneValues.push(1 + Math.floor(Math.random() * (limit - 2)));
-    }
-    for (let i = 0; i < MANY_ELEMENTS_NUMBER; i++) {
-      const values: number[] = [];
-      for (let j = 0; j < MANY_BATCH_SIZE; j++) {
-        values.push(1 + Math.floor(Math.random() * (limit - 2)));
-      }
-      manyValues.push(values);
-    }
-    console.timeEnd(`prepared data`);
-  });
 
   it(`should initialize blockchain`, async () => {
-    expect(contractPrivateKey).toBeDefined();
-    expect(contractPrivateKey.toPublicKey().toBase58()).toBe(
-      contractPublicKey.toBase58()
-    );
+    if(deploy) {
+      expect(contractPrivateKey).toBeDefined();
+      expect(contractPrivateKey.toPublicKey().toBase58()).toBe(
+          contractPublicKey.toBase58()
+      );
+    }
 
     Memory.info("initializing blockchain");
 
@@ -122,12 +106,7 @@ describe("Add Worker", () => {
       console.log("Analyzing contracts methods...");
       console.time("methods analyzed");
       const methods = [
-        {
-          name: "AddProgram",
-          result: await AddProgram.analyzeMethods(),
-          skip: true,
-        },
-        { name: "AddContract", result: await AddContract.analyzeMethods() },
+        { name: "AddContract", result: await AddContract.analyzeMethods(), skip: false },
       ];
       console.timeEnd("methods analyzed");
       const maxRows = 2 ** 16;
@@ -153,11 +132,6 @@ describe("Add Worker", () => {
       console.log("Compiling contracts...");
       const cache: Cache = Cache.FileSystem("./cache");
 
-      console.time("AddProgram compiled");
-      programVerificationKey = (await AddProgram.compile({ cache }))
-        .verificationKey;
-      console.timeEnd("AddProgram compiled");
-
       console.time("AddContract compiled");
       contractVerificationKey = (await AddContract.compile({ cache }))
         .verificationKey;
@@ -166,10 +140,6 @@ describe("Add Worker", () => {
       console.log(
         "AddContract verification key",
         contractVerificationKey.hash.toJSON()
-      );
-      console.log(
-        "AddProgram verification key",
-        programVerificationKey.hash.toJSON()
       );
       Memory.info("compiled");
     });
@@ -204,18 +174,13 @@ describe("Add Worker", () => {
 
       await fetchMinaAccount({ publicKey: sender, force: true });
       await fetchMinaAccount({ publicKey: contractPublicKey, force: true });
-      const addValue = new AddValue({
-        value: UInt64.from(100),
-        limit: UInt64.from(limit),
-      });
       const privateKey = PrivateKey.random();
-      const address = privateKey.toPublicKey();
 
       const tx = await Mina.transaction(
         { sender, fee: await fee(), memo: "one tx" },
         async () => {
           AccountUpdate.fundNewAccount(sender);
-          await zkApp.addOne(address, addValue);
+          await zkApp.update();
         }
       );
 
@@ -237,20 +202,12 @@ describe("Add Worker", () => {
           developer,
           repo,
           transactions: [],
-          task: "one",
+          task: "update",
           args: JSON.stringify({
             contractAddress: contractPublicKey.toBase58(),
             isMany: false,
-            addValue: serializeFields(
-              AddValue.toFields(
-                new AddValue({
-                  value: UInt64.from(oneValues[i]),
-                  limit: UInt64.from(limit),
-                })
-              )
-            ),
           }),
-          metadata: `one`,
+          metadata: `update`,
         });
         console.log("answer:", answer);
         expect(answer).toBeDefined();
@@ -266,106 +223,6 @@ describe("Add Worker", () => {
       }
       console.timeEnd(`One txs sent`);
       Memory.info(`One txs sent`);
-    });
-  }
-
-  if (many) {
-    it(`should send transactions with recursive proofs`, async () => {
-      expect(blockchainInitialized).toBe(true);
-      console.time(`Many txs sent`);
-      for (let i = 0; i < MANY_ELEMENTS_NUMBER; i++) {
-        console.log(`Sending many tx ${i + 1}/${MANY_ELEMENTS_NUMBER}...`);
-        const transactions: string[] = [];
-        for (let j = 0; j < MANY_BATCH_SIZE; j++) {
-          transactions.push(
-            JSON.stringify({
-              addValue: serializeFields(
-                AddValue.toFields(
-                  new AddValue({
-                    value: UInt64.from(manyValues[i][j]),
-                    limit: UInt64.from(limit),
-                  })
-                )
-              ),
-            })
-          );
-        }
-
-        const proofAnswer = await api.recursiveProof({
-          developer,
-          repo,
-          transactions,
-          task: "proof",
-          args: JSON.stringify({
-            contractAddress: contractPublicKey.toBase58(),
-          }),
-          metadata: `proof`,
-        });
-        console.log("proof answer:", proofAnswer);
-        expect(proofAnswer).toBeDefined();
-        expect(proofAnswer.success).toBe(true);
-        let jobId = proofAnswer.jobId;
-        expect(jobId).toBeDefined();
-        if (jobId === undefined) throw new Error("Job ID is undefined");
-        const proofResult = await api.waitForJobResult({
-          jobId,
-          printLogs: true,
-        });
-        //console.log("Proof result", proofResult);
-        expect(proofResult).toBeDefined();
-        expect(proofResult.success).toBe(true);
-        expect(proofResult.result).toBeDefined();
-        const proof = proofResult.result.result;
-
-        const verifyAnswer = await api.execute({
-          developer,
-          repo,
-          transactions: [],
-          task: "verifyProof",
-          args: JSON.stringify({
-            contractAddress: contractPublicKey.toBase58(),
-            proof,
-          }),
-          metadata: `verify proof`,
-        });
-        console.log("verifyAnswer:", verifyAnswer);
-        expect(verifyAnswer).toBeDefined();
-        expect(verifyAnswer.success).toBe(true);
-        jobId = verifyAnswer.jobId;
-        expect(jobId).toBeDefined();
-        if (jobId === undefined) throw new Error("Job ID is undefined");
-        const verifyResult = await api.waitForJobResult({
-          jobId,
-          printLogs: true,
-        });
-        console.log("Verify result:", verifyResult.result.result);
-
-        const answer = await api.execute({
-          developer,
-          repo,
-          transactions: [],
-          task: "many",
-          args: JSON.stringify({
-            contractAddress: contractPublicKey.toBase58(),
-            isMany: true,
-            proof,
-          }),
-          metadata: `many`,
-        });
-        console.log("answer:", answer);
-        expect(answer).toBeDefined();
-        expect(answer.success).toBe(true);
-        jobId = answer.jobId;
-        expect(jobId).toBeDefined();
-        if (jobId === undefined) throw new Error("Job ID is undefined");
-        const manyResult = await api.waitForJobResult({
-          jobId,
-          printLogs: true,
-        });
-        console.log("Many result:", manyResult.result.result);
-      }
-      console.timeEnd(`Many txs sent`);
-      Memory.info(`Many txs sent`);
     });
   }
 

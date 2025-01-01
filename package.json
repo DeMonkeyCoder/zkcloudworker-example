@@ -1,7 +1,7 @@
 {
-  "name": "worker-example",
-  "version": "0.8.1",
-  "author": "DFST",
+  "name": "themonkeycoder-worker-example",
+  "version": "0.8.9",
+  "author": "TheMonkeyCoder",
   "scripts": {
     "test": "jest",
     "local": "jest --chain=local --cloud=local --deploy=true --send=false --one=true --many=true",

@@ -8,7 +8,7 @@ import {
 import { initializeBindings } from "o1js";
 import { AddWorker } from "./src/worker";
 import packageJson from "./package.json";
-import { AddContract, AddProgram } from "./src/contract";
+import { AddContract } from "./src/contract";
 
 export async function zkcloudworker(cloud: Cloud): Promise<zkCloudWorker> {
   console.log(
@@ -25,7 +25,7 @@ export async function verify(chain: blockchain): Promise<VerificationData> {
   if (chain !== "devnet") throw new Error("Unsupported chain");
   return {
     contract: AddContract,
-    programDependencies: [AddProgram],
+    programDependencies: [],
     contractDependencies: [],
     address: "B62qrZso6WMaxZPrkDHW9sa7BTtVKjHon6BJxUbN3q6PwdTNQXWvADD",
     chain: "devnet",

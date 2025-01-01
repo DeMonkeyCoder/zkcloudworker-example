@@ -3422,6 +3422,21 @@ __metadata:
   languageName: node
   linkType: hard
 
+"themonkeycoder-worker-example@workspace:.":
+  version: 0.0.0-use.local
+  resolution: "themonkeycoder-worker-example@workspace:."
+  dependencies:
+    "@jest/globals": "npm:^29.7.0"
+    "@types/jest": "npm:^29.5.14"
+    "@types/node": "npm:^22.9.1"
+    jest: "npm:^29.7.0"
+    o1js: "npm:^2.1.0"
+    ts-jest: "npm:^29.2.5"
+    typescript: "npm:^5.6.3"
+    zkcloudworker: "npm:^0.16.11"
+  languageName: unknown
+  linkType: soft
+
 "tmpl@npm:1.0.5":
   version: 1.0.5
   resolution: "tmpl@npm:1.0.5"
@@ -3627,21 +3642,6 @@ __metadata:
   checksum: 10c0/449fa5c44ed120ccecfe18c433296a4978a7583bf2391c50abce13f76878d2476defde04d0f79db8165bdf432853c1f8389d0485ca6e8ebce3bbcded513d5e6a
   languageName: node
   linkType: hard
-
-"worker-example@workspace:.":
-  version: 0.0.0-use.local
-  resolution: "worker-example@workspace:."
-  dependencies:
-    "@jest/globals": "npm:^29.7.0"
-    "@types/jest": "npm:^29.5.14"
-    "@types/node": "npm:^22.9.1"
-    jest: "npm:^29.7.0"
-    o1js: "npm:^2.1.0"
-    ts-jest: "npm:^29.2.5"
-    typescript: "npm:^5.6.3"
-    zkcloudworker: "npm:^0.16.11"
-  languageName: unknown
-  linkType: soft
 
 "wrap-ansi-cjs@npm:wrap-ansi@^7.0.0, wrap-ansi@npm:^7.0.0":
   version: 7.0.0

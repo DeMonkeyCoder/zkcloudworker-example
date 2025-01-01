@@ -17,10 +17,9 @@ import {
   AccountUpdate,
   Cache,
 } from "o1js";
-import { AddContract, AddProgram, AddProgramProof, AddValue } from "./contract";
+import { AddContract } from "./contract";
 
 export class AddWorker extends zkCloudWorker {
-  static programVerificationKey: VerificationKey | undefined = undefined;
   static contractVerificationKey: VerificationKey | undefined = undefined;
   readonly cache: Cache;
 
@@ -32,16 +31,6 @@ export class AddWorker extends zkCloudWorker {
   private async compile(compileSmartContracts: boolean = true): Promise<void> {
     try {
       console.time("compiled");
-      if (AddWorker.programVerificationKey === undefined) {
-        console.time("compiled AddProgram");
-        AddWorker.programVerificationKey = (
-          await AddProgram.compile({
-            cache: this.cache,
-          })
-        ).verificationKey;
-        console.timeEnd("compiled AddProgram");
-      }
-
       if (compileSmartContracts === false) {
         console.timeEnd("compiled");
         return;
@@ -65,51 +54,6 @@ export class AddWorker extends zkCloudWorker {
     }
   }
 
-  public async create(transaction: string): Promise<string | undefined> {
-    const msg = `proof created`;
-    console.time(msg);
-    const args = JSON.parse(transaction);
-
-    const addValue: AddValue = AddValue.fromFields(
-      deserializeFields(args.addValue)
-    ) as AddValue;
-
-    await this.compile(false);
-    if (AddWorker.programVerificationKey === undefined)
-      throw new Error("verificationKey is undefined");
-
-    const output = await AddProgram.create(addValue);
-    console.timeEnd(msg);
-
-    return JSON.stringify(output.proof.toJSON(), null, 2);
-  }
-
-  public async merge(
-    proof1: string,
-    proof2: string
-  ): Promise<string | undefined> {
-    const msg = `proof merged`;
-    console.time(msg);
-    await this.compile(false);
-    if (AddWorker.programVerificationKey === undefined)
-      throw new Error("verificationKey is undefined");
-
-    const sourceProof1: AddProgramProof = await AddProgramProof.fromJSON(
-      JSON.parse(proof1) as JsonProof
-    );
-    const sourceProof2: AddProgramProof = await AddProgramProof.fromJSON(
-      JSON.parse(proof2) as JsonProof
-    );
-
-    const output = await AddProgram.merge(sourceProof1, sourceProof2);
-    const ok = await verify(
-      output.proof.toJSON(),
-      AddWorker.programVerificationKey
-    );
-    if (!ok) throw new Error("proof verification failed");
-    console.timeEnd(msg);
-    return JSON.stringify(output.proof.toJSON(), null, 2);
-  }
 
   public async execute(transactions: string[]): Promise<string | undefined> {
     if (this.cloud.args === undefined)
@@ -120,14 +64,8 @@ export class AddWorker extends zkCloudWorker {
       throw new Error("args.contractAddress is undefined");
 
     switch (this.cloud.task) {
-      case "one":
+      case "update":
         return await this.sendTx({ ...args, isMany: false });
-
-      case "many":
-        return await this.sendTx({ ...args, isMany: true });
-
-      case "verifyProof":
-        return await this.verifyProof(args);
 
       case "files":
         return await this.files(args);
@@ -141,21 +79,6 @@ export class AddWorker extends zkCloudWorker {
       default:
         throw new Error(`Unknown task: ${this.cloud.task}`);
     }
-  }
-
-  private async verifyProof(args: { proof: string }): Promise<string> {
-    if (args.proof === undefined) throw new Error("args.proof is undefined");
-    const proof = (await AddProgramProof.fromJSON(
-      JSON.parse(args.proof) as JsonProof
-    )) as AddProgramProof;
-
-    await this.compile(false);
-    if (AddWorker.programVerificationKey === undefined)
-      throw new Error("verificationKey is undefined");
-
-    const ok = await verify(proof, AddWorker.programVerificationKey);
-    if (ok) return "Proof verified";
-    else return "Proof verification failed";
   }
 
   private async files(args: { text: string }): Promise<string> {
@@ -206,7 +129,6 @@ export class AddWorker extends zkCloudWorker {
 
   private async sendTx(args: {
     proof?: string;
-    addValue?: string;
     isMany: boolean;
     contractAddress: string;
   }): Promise<string> {
@@ -215,20 +137,14 @@ export class AddWorker extends zkCloudWorker {
     console.log("isMany:", isMany);
     if (isMany) {
       if (args.proof === undefined) throw new Error("args.proof is undefined");
-    } else {
-      if (args.addValue === undefined)
-        throw new Error("args.addValue is undefined");
     }
 
-    const privateKey = PrivateKey.random();
-    const address = privateKey.toPublicKey();
-    console.log("Address", address.toBase58());
     const contractAddress = PublicKey.fromBase58(args.contractAddress);
     const zkApp = new AddContract(contractAddress);
 
     console.log(`Sending tx...`);
     console.time("prepared tx");
-    const memo = isMany ? "many" : "one";
+    const memo = "update";
 
     const deployerKeyPair = await this.cloud.getDeployer();
     if (deployerKeyPair === undefined)
@@ -254,43 +170,17 @@ export class AddWorker extends zkCloudWorker {
     let tx;
     let value: string;
     let limit: string;
-    if (isMany) {
-      const proof = (await AddProgramProof.fromJSON(
-        JSON.parse(args.proof!) as JsonProof
-      )) as AddProgramProof;
-      value = proof.publicOutput.value.toJSON();
-      limit = proof.publicOutput.limit.toJSON();
-
-      tx = await Mina.transaction(
+    tx = await Mina.transaction(
         { sender, fee: await fee(), memo },
         async () => {
-          AccountUpdate.fundNewAccount(sender);
-          await zkApp.addMany(address, proof);
+          await zkApp.update();
         }
-      );
-    } else {
-      const addValue = AddValue.fromFields(
-        deserializeFields(args.addValue!)
-      ) as AddValue;
-      console.log("addValue:", {
-        value: addValue.value.toJSON(),
-        limit: addValue.limit.toJSON(),
-      });
-      value = addValue.value.toJSON();
-      limit = addValue.limit.toJSON();
-
-      tx = await Mina.transaction(
-        { sender, fee: await fee(), memo },
-        async () => {
-          AccountUpdate.fundNewAccount(sender);
-          await zkApp.addOne(address, addValue);
-        }
-      );
-    }
+    );
     if (tx === undefined) throw new Error("tx is undefined");
     await tx.prove();
 
-    tx.sign([deployer, privateKey]);
+    tx.sign([deployer]);
+
     try {
       await tx.prove();
       console.timeEnd("prepared tx");
@@ -334,9 +224,7 @@ export class AddWorker extends zkCloudWorker {
         this.cloud.publishTransactionMetadata({
           txId: txSent?.hash,
           metadata: {
-            method: isMany ? "addMany" : "addOne",
-            value,
-            limit,
+            method: "update"
           } as any,
         });
       return txSent?.hash ?? "Error sending transaction";
